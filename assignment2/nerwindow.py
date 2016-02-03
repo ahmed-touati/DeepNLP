@@ -66,7 +66,9 @@ class WindowMLP(NNBase):
         #### YOUR CODE HERE ####
 
         # any other initialization you need
-
+        self.sparams.L = wv.copy() # store own representations
+        self.params.W = random_weight_matrix(*self.params.W.shape)
+        self.params.U = random_weight_matrix(*self.params.U.shape)
 
 
         #### END YOUR CODE ####
@@ -93,8 +95,28 @@ class WindowMLP(NNBase):
         ##
         # Forward propagation
 
+        x = array([self.sparams.L[w] for w in window]).reshape(self.sparams.L.shape[1]*len(window))
+        a1 = x # 3n = 150 input vector
+        z1 = dot(self.params.W, a1) + self.params.b1 # 100 vector
+        a2 = tanh(z1) # 100 vector
+        z2 = dot(self.params.U, a2) + self.params.b2 # 5 vector
+        a3 = softmax(z2) # 5 vector
         ##
         # Backpropagation
+
+        delta3 = a3 # 5 vector
+        delta3[label] -= 1
+        self.grads.U += outer(delta3, a2.T) + self.lreg * self.params.U # (5, 1) * (1, 100) = (5, 100) matrix
+        self.grads.b2 += delta3
+
+        delta2 = multiply((1.0 - a2**2), dot(self.params.U.T, delta3)) # (100, 5)* (5, 1) = (100, 1) vector
+        self.grads.W += outer(delta2, a1.T) + self.lreg * self.params.W # (100, 1) * (1, 3n) = (100, 150)
+        self.grads.b1 += delta2 # (100, 1) vector
+
+        dJdL = dot(self.params.W.T, delta2).reshape(3, self.sparams.L.shape[1]) # (150, 100) * (100, 1) = (150, 1) before reshape
+        self.sgrads.L[window[0]] = dJdL[0]
+        self.sgrads.L[window[1]] = dJdL[1]
+        self.sgrads.L[window[2]] = dJdL[2]
 
 
 
@@ -120,6 +142,17 @@ class WindowMLP(NNBase):
 
 
         #### END YOUR CODE ####
+        P = zeros((len(windows), self.params.b2.shape[0])) # (|V|, 5)
+        for i in range(P.shape[0]):
+            # Forward propagation
+            x = array([self.sparams.L[w] for w in windows[i]]).reshape(self.sparams.L.shape[1]*len(windows[0]))
+            a1 = x # 3n = 150 input vector
+            z1 = dot(self.params.W, a1) + self.params.b1 # 100 vector
+            a2 = tanh(z1) # 100 vector
+            z2 = dot(self.params.U, a2) + self.params.b2 # 5 vector
+            a3 = softmax(z2) # 5 vector
+            P[i, :] = a3
+
 
         return P # rows are output for each input
 
@@ -132,7 +165,8 @@ class WindowMLP(NNBase):
         """
 
         #### YOUR CODE HERE ####
-
+        P = self.predict_proba(windows)
+        c = argmax(P, axis=1)
 
         #### END YOUR CODE ####
         return c # list of predicted classes
@@ -146,6 +180,11 @@ class WindowMLP(NNBase):
         """
 
         #### YOUR CODE HERE ####
+        P = self.predict_proba(windows)
+        log_likelihood = -log(P[range(P.shape[0]), labels])
+        Jloss = sum(log_likelihood)
+        Jreg = self.lreg/2.0 * (sum(self.params.W**2) + sum(self.params.U**2))
+        J = Jloss + Jreg
 
 
         #### END YOUR CODE ####
