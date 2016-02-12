@@ -47,9 +47,13 @@ class RNNLM(NNBase):
         # Initialize word vectors
         # either copy the passed L0 and U0 (and initialize in your notebook)
         # or initialize with gaussian noise here
+        self.sparams.L = 0.1 * random.standard_normal(self.sparams.L.shape)
+        self.sparams.U = 0.1 * random.standard_normal(self.params.U.shape)
 
         # Initialize H matrix, as with W and U in part 1
-
+        self.params.H = random_weight_matrix(*self.params.H.shape)
+        self.bptt = bptt
+        self.alpha = alpha
         #### END YOUR CODE ####
 
 
@@ -97,10 +101,35 @@ class RNNLM(NNBase):
 
         ##
         # Forward propagation
-
+        for t in range(0, ns):
+            hs[t] = sigmoid(dot(self.params.H, hs[t-1]) + self.sparams.L[xs[t], :])
+            ps[t] = softmax(dot(self.params.U, hs[t]))
 
         ##
         # Backward propagation through time
+        dJdU = zeros(self.params.U.shape)
+        dJdH = zeros(self.params.H.shape)
+
+
+        delta_output = ps.copy() # (ns, vdim)
+        delta_output[arange(0, ns), ys] -= 1
+        for t in range(ns-1, -1, -1):
+            Jt = -log(ps[t, ys[t]])
+
+            dJdU += outer(delta_output[t], hs[t]) # (vdim, 1) * (1, hdim) = (vdim, hdim)
+
+            # update delta
+            delta = (self.params.U.T.dot(delta_output[t])) * hs[t] * (1-hs[t]) # (hdim, vdim) * (vdim, 1) = (hdim, 1)
+
+            for step in range(t, max(0, t-self.bptt)-1, -1):
+                dJdH += outer(delta, hs[step-1]) # (hdim, 1)* (1, hdim) = (hdim, hdim)
+                self.sgrads.L[xs[step]] = delta
+                # update delta
+                delta = dot(self.params.H.T, delta) * hs[step] * (1-hs[step])
+
+        self.grads.U = dJdU
+        self.grads.H = dJdH
+
 
 
 
@@ -136,9 +165,17 @@ class RNNLM(NNBase):
         and return the sum of the point losses.
         """
 
-        J = 0
+        #J = 0
+        ns = len(xs)
         #### YOUR CODE HERE ####
+        # forward propagation
+        hs = zeros((ns+1, self.hdim))
+        ps = zeros((ns, self.vdim)) # predicted probas
+        for t in range(0, ns):
+            hs[t] = sigmoid(dot(self.params.H, hs[t-1]) + self.sparams.L[xs[t], :])
+            ps[t] = softmax(dot(self.params.U, hs[t]))
 
+        J = - sum(log(ps[arange(ns), ys]))
 
         #### END YOUR CODE ####
         return J
@@ -195,9 +232,17 @@ class RNNLM(NNBase):
 
         J = 0 # total loss
         ys = [init] # emitted sequence
+        ht = zeros(self.hdim)
 
         #### YOUR CODE HERE ####
-
+        for t in range(maxlen):
+            if ys[-1] == end:
+                break
+            ht = sigmoid(dot(self.params.H, ht) + self.sparams.L[ys[t], :])
+            pt = softmax(dot(self.params.U, ht))
+            yt = multinomial_sample(pt)
+            ys.append(yt)
+            J -= log(pt[yt])
 
         #### YOUR CODE HERE ####
         return ys, J
